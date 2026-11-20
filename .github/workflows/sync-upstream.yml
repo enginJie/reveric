@@ -1,0 +1,39 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    # Run every 6 hours (UTC 00:00, 06:00, 12:00, 18:00)
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync default branch with upstream
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+          TARGET_BRANCH: unstable
+        run: |
+          set -euo pipefail
+          echo "Syncing ${GITHUB_REPOSITORY} (${TARGET_BRANCH}) with upstream..."
+          if ! response=$(gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/merge-upstream" \
+            -f branch="${TARGET_BRANCH}" 2>&1); then
+            echo "${response}" >&2
+            if echo "${response}" | grep -qiE "refusing to allow.*workflow|workflows? (permission|scope)"; then
+              echo "::error::Upstream modified files under .github/workflows/. Add a PAT with 'workflow' scope (or Fine-grained PAT with Contents + Workflows write) as repository secret UPSTREAM_SYNC_TOKEN." >&2
+            fi
+            exit 1
+          fi
+          echo "${response}"
